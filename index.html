@@ -46,6 +46,18 @@ section{margin-top:clamp(28px,4vw,48px)}
 .sh .n{color:var(--mute);font-size:15px}
 .sh .tools{margin-left:auto;display:flex;gap:8px;align-items:center}
 .sh input{width:200px}
+.sh select{width:auto;min-height:44px;border-radius:999px;padding:0 14px;background:var(--card)}
+.pickrow{display:flex;gap:clamp(18px,2.6vw,32px);overflow-x:auto;scroll-snap-type:x proximity;scroll-padding-inline:max(5vw,16px);
+padding:26px max(5vw,16px) 56px;margin:0 calc(-1 * max(5vw,16px));scrollbar-width:thin}
+.pickrow::after{content:"";flex:none;width:1px}
+.pk{all:unset;flex:none;cursor:pointer;width:var(--cw);scroll-snap-align:start;display:flex;flex-direction:column;gap:12px}
+.pk .cv{-webkit-box-reflect:unset;transition:transform .35s cubic-bezier(.2,.7,.2,1),box-shadow .35s}
+.pk:hover .cv,.pk:focus-visible .cv{transform:translateY(-8px) rotate(-1.5deg);box-shadow:0 30px 40px -16px rgba(120,50,20,.45)}
+.pk:focus-visible .cv{outline:2px solid var(--acc);outline-offset:3px}
+.picks .sh .n{font-style:italic}
+.badge{display:inline-block;background:var(--acc);color:var(--accink);font-size:12px;font-weight:700;padding:2px 10px;border-radius:999px;margin-left:6px;vertical-align:2px}
+.chk{flex-direction:row;align-items:center;gap:10px;font-weight:600}
+.chk input{width:22px;min-height:22px;height:22px;accent-color:var(--acc)}
 .arr{width:44px;padding:0;font-size:18px}
 .track{display:flex;gap:3px;align-items:flex-end;scroll-padding-inline:max(5vw,16px);overflow-x:auto;scroll-snap-type:x proximity;scroll-behavior:smooth;
 padding:44px max(5vw,16px) 64px;margin:0 calc(-1 * max(5vw,16px));scrollbar-width:thin}
@@ -165,9 +177,17 @@ footer .btns{display:flex;gap:10px;flex-wrap:wrap}
   <p class="status" id="status" hidden></p>
 </header>
 
+<section class="picks" id="picksSec" aria-labelledby="hPicks" hidden>
+  <div class="sh"><h2 id="hPicks">Larry's picks</h2><span class="n">All-time favourites</span>
+    <div class="tools"><button class="arr" data-scroll="trPicks" data-dir="-1" aria-label="Scroll left">‹</button><button class="arr" data-scroll="trPicks" data-dir="1" aria-label="Scroll right">›</button></div></div>
+  <div class="pickrow" id="trPicks"></div>
+</section>
+
 <section class="ledge" aria-labelledby="hRead">
   <div class="sh"><h2 id="hRead">Finished</h2><span class="n" id="nRead"></span>
-    <div class="tools"><input type="search" id="q" placeholder="Search my shelves" aria-label="Search my shelves">
+    <div class="tools"><select id="sortSel" aria-label="Arrange the shelves">
+        <option value="recent">Recently finished</option><option value="title">Title A–Z</option><option value="author">Author A–Z</option>
+        <option value="rating">Highest rated</option><option value="rainbow">Rainbow (spine colour)</option></select><input type="search" id="q" placeholder="Search my shelves" aria-label="Search my shelves">
       <button class="arr" data-scroll="trRead" data-dir="-1" aria-label="Scroll left">‹</button><button class="arr" data-scroll="trRead" data-dir="1" aria-label="Scroll right">›</button></div></div>
   <div class="track" id="trRead"></div>
 </section>
@@ -212,6 +232,7 @@ footer .btns{display:flex;gap:10px;flex-wrap:wrap}
     <label>Rating<div class="rate" id="iRate"></div></label>
     <label class="full">Description<textarea id="iDesc"></textarea></label>
     <label class="full">My notes and favourite lines<textarea id="iNotes"></textarea></label>
+    <label class="full chk"><input type="checkbox" id="iFav"> One of Larry's picks (all-time favourite)</label>
     <div class="full" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
       <button type="button" id="upBtn">Use my own cover photo</button><input type="file" id="iFile" accept="image/*" hidden>
       <button type="button" class="link" id="clearCover">Remove cover</button></div>
@@ -395,6 +416,40 @@ function coverHTML(b,size){const u=okCover(b.cover);
 document.addEventListener('error',e=>{const im=e.target;if(im.classList?.contains('sbg')){im.remove();return}if(im.tagName==='IMG'&&im.parentElement?.classList.contains('cv')){const p=im.parentElement;p.innerHTML=genCover({title:p.dataset.t,author:p.dataset.a})}},true);
 document.addEventListener('load',e=>{const im=e.target;if(im.classList?.contains('sbg')&&im.naturalWidth<3){im.remove();return}if(im.tagName==='IMG'&&im.parentElement?.classList.contains('cv')&&im.naturalWidth<3){const p=im.parentElement;p.innerHTML=genCover({title:p.dataset.t,author:p.dataset.a})}},true);
 
+/* ---------- arranging the shelves ---------- */
+const bare=t=>String(t||'').toLowerCase().replace(/^(the|a|an)\s+/,'');
+const surname=a=>{const n=String(a||'').split(',')[0].trim().split(/\s+/);return (n.pop()||'').toLowerCase()};
+const HUES=(()=>{try{return JSON.parse(localStorage.getItem('reading-library-hues'))||{}}catch(e){return{}}})();
+function hexHsl(h){const n=parseInt(h.slice(1),16),rr=(n>>16&255)/255,g=(n>>8&255)/255,bb=(n&255)/255;return rgbHsl(rr,g,bb)}
+function rgbHsl(rr,g,bb){const mx=Math.max(rr,g,bb),mn=Math.min(rr,g,bb),l=(mx+mn)/2,d=mx-mn;let h=0,sat=0;
+  if(d){sat=d/(1-Math.abs(2*l-1));h=mx===rr?((g-bb)/d)%6:mx===g?(bb-rr)/d+2:(rr-g)/d+4;h*=60;if(h<0)h+=360}return {h,s:sat,l}}
+function spineColour(b){const u=okCover(b.cover);if(u&&HUES[u])return HUES[u];
+  const [a,c]=PAIRS[hash(b.title+(b.author||''))%PAIRS.length];return hexHsl(c)}
+/* red → orange → yellow → green → blue → purple, then greys from light to dark */
+function rainbowKey(b){const {h,s:sat,l}=spineColour(b);return sat<.14||l<.1||l>.92?1000+(1-l)*100:(h+345)%360}
+const SORTS={
+  recent:(a,b)=>(b.finished||'').localeCompare(a.finished||'')||(b.added||0)-(a.added||0),
+  title:(a,b)=>bare(a.title).localeCompare(bare(b.title)),
+  author:(a,b)=>surname(a.author).localeCompare(surname(b.author))||bare(a.title).localeCompare(bare(b.title)),
+  rating:(a,b)=>(b.rating||0)-(a.rating||0)||(b.finished||'').localeCompare(a.finished||''),
+  rainbow:(a,b)=>rainbowKey(a)-rainbowKey(b)
+};
+/* read each cover's main colour once (where the image host allows it) so the rainbow follows the spines you see */
+const hueTried=new Set();let hueTimer=null;
+function learnHues(list){
+  const todo=list.map(b=>okCover(b.cover)).filter(u=>u&&!HUES[u]&&!hueTried.has(u));if(!todo.length)return;
+  let pending=todo.length,learned=0;
+  for(const u of todo){hueTried.add(u);const im=new Image();if(!u.startsWith('data:'))im.crossOrigin='anonymous';im.referrerPolicy='no-referrer';
+    const done=()=>{if(--pending===0&&learned){try{localStorage.setItem('reading-library-hues',JSON.stringify(HUES))}catch(e){}clearTimeout(hueTimer);hueTimer=setTimeout(render,50)}};
+    im.onload=()=>{try{const c=document.createElement('canvas');c.width=16;c.height=24;const x=c.getContext('2d');x.drawImage(im,0,0,16,24);
+      const d=x.getImageData(0,0,16,24).data;let R=0,G=0,B=0,W=0;
+      for(let i=0;i<d.length;i+=4){const px=rgbHsl(d[i]/255,d[i+1]/255,d[i+2]/255),w=.15+px.s;R+=d[i]*w;G+=d[i+1]*w;B+=d[i+2]*w;W+=w}
+      if(W&&im.naturalWidth>2){HUES[u]=rgbHsl(R/W/255,G/W/255,B/W/255);learned++}}catch(e){}done()};
+    im.onerror=done;im.src=u}
+}
+try{const sv=localStorage.getItem('reading-library-sort');if(sv&&SORTS[sv])$('sortSel').value=sv}catch(e){}
+$('sortSel').addEventListener('change',()=>{try{localStorage.setItem('reading-library-sort',$('sortSel').value)}catch(e){}render()});
+
 /* ---------- UI helpers ---------- */
 function toast(m){const t=$('toast');t.textContent=m;t.classList.add('on');clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove('on'),3000)}
 function status(m){$('status').textContent=m||'';$('status').hidden=!m}
@@ -421,9 +476,14 @@ function render(){
   $('chips').innerHTML=['',...GENRES,...extra].map(g=>`<button data-genre="${esc(g)}" aria-pressed="${g===genre}">${esc(g||'All')}</button>`).join('');
   const q=$('q').value.trim().toLowerCase();
   const match=b=>(!genre||b.genre===genre)&&(!q||[b.title,b.author,b.notes,b.desc].join(' ').toLowerCase().includes(q));
-  const r=read.filter(match).sort((a,b)=>(b.finished||'').localeCompare(a.finished||'')||(b.added||0)-(a.added||0));
-  const t=to.filter(match).sort((a,b)=>(b.added||0)-(a.added||0));
-  const rc=recs.filter(match).sort((a,b)=>(b.added||0)-(a.added||0));
+  const mode=$('sortSel').value,cmp=SORTS[mode]||SORTS.recent,newest=(a,b)=>(b.added||0)-(a.added||0);
+  const r=read.filter(match).sort(cmp);
+  const t=to.filter(match).sort(mode==='recent'?newest:cmp);
+  const rc=recs.filter(match).sort(mode==='recent'?newest:cmp);
+  const pk=read.filter(b=>b.fav&&match(b)).sort((a,b)=>(b.rating||0)-(a.rating||0)||SORTS.title(a,b));
+  $('picksSec').hidden=!pk.length;
+  $('trPicks').innerHTML=pk.map(b=>`<button class="pk" data-id="${esc(b.id)}" aria-label="${esc(b.title)}${b.author?' by '+esc(b.author):''}">${coverHTML(b)}<span class="cap"><b>${esc(b.title)}</b><span>${esc(b.author||'')}</span></span></button>`).join('');
+  if(mode==='rainbow')learnHues([...r,...t,...rc]);
   $('nRead').textContent=r.length+(r.length===1?' book':' books');
   $('nTo').textContent=(t.length+rc.length)+(t.length+rc.length===1?' book':' books');
   $('trRead').innerHTML=r.length?r.map(b=>bookBtn(b,'book')).join(''):
@@ -476,7 +536,7 @@ function openForm(b,preset){
   $('fSub').textContent=[p.year,p.pages?p.pages+' pages':''].filter(Boolean).join(' · ');
   $('iTitle').value=p.title||'';$('iAuthor').value=p.author||'';$('iGenre').innerHTML=genreOptions(p.genre||'');
   $('iShelf').value=p.shelf||(findMode==='toread'?'toread':'read');
-  $('iDate').value=b?(b.finished||''):today();$('iDesc').value=p.desc||'';$('iNotes').value=p.notes||'';
+  $('iDate').value=b?(b.finished||''):today();$('iDesc').value=p.desc||'';$('iFav').checked=!!p.fav;$('iNotes').value=p.notes||'';
   $('delBtn').hidden=!b;drawRate();drawFormCover();open('ovForm',b?'iTitle':'iDate');
 }
 $('iShelf').addEventListener('change',()=>{if($('iShelf').value==='toread'&&!editing)$('iDate').value='';else if(!$('iDate').value)$('iDate').value=today()});
@@ -493,7 +553,7 @@ $('iFile').addEventListener('change',()=>{
 $('form').addEventListener('submit',e=>{
   e.preventDefault();const title=$('iTitle').value.trim();if(!title)return;
   const b={...draft,id:editing?.id||newId(),title,author:$('iAuthor').value.trim(),shelf:$('iShelf').value,genre:$('iGenre').value,
-    finished:$('iDate').value,rating,desc:$('iDesc').value.trim(),notes:$('iNotes').value.trim(),cover:okCover(draft.cover),added:editing?.added||Date.now()};
+    finished:$('iDate').value,fav:$('iFav').checked&&$('iShelf').value==='read',rating,desc:$('iDesc').value.trim(),notes:$('iNotes').value.trim(),cover:okCover(draft.cover),added:editing?.added||Date.now()};
   delete b.fromRec;put('books',b);if(draft.fromRec)del('recs',draft.fromRec);
   close();toast(editing?'Saved':b.shelf==='toread'?'Added to your to-read shelf':'Added to your shelf');
 });
@@ -519,10 +579,10 @@ function openView(kind,id){
   const desc=b.desc?`<div class="desc">${esc(b.desc).replace(/\n/g,'<br>')}</div>`:'';
   const info=kind==='rec'
     ?`<p class="meta">${b.author?'by '+esc(b.author)+' · ':''}recommended${b.from?' by '+esc(b.from):''}</p>${b.why?`<div class="notes">${esc(b.why)}</div>`:''}${desc}`
-    :`<p class="meta">${b.author?'by '+esc(b.author):''}${b.year?' · '+esc(b.year):''}</p><dl class="dl">${b.rating?`<dt>My rating</dt><dd class="stars">${stars(b.rating)}</dd>`:''}${b.genre?`<dt>Genre</dt><dd>${esc(b.genre)}</dd>`:''}<dt>Shelf</dt><dd>${b.shelf==='toread'?'To read':'Finished'}</dd>${b.finished&&b.shelf!=='toread'?`<dt>Finished</dt><dd>${esc(new Date(b.finished+'T12:00').toLocaleDateString(undefined,{year:'numeric',month:'long',day:'numeric'}))}</dd>`:''}${b.pages?`<dt>Pages</dt><dd>${esc(b.pages)}</dd>`:''}</dl>${desc}${b.notes?`<div class="notes">${esc(b.notes)}</div>`:''}`;
+    :`<p class="meta">${b.author?'by '+esc(b.author):''}${b.year?' · '+esc(b.year):''}${b.fav?'<span class="badge">Larry\'s pick</span>':''}</p><dl class="dl">${b.rating?`<dt>My rating</dt><dd class="stars">${stars(b.rating)}</dd>`:''}${b.genre?`<dt>Genre</dt><dd>${esc(b.genre)}</dd>`:''}<dt>Shelf</dt><dd>${b.shelf==='toread'?'To read':'Finished'}</dd>${b.finished&&b.shelf!=='toread'?`<dt>Finished</dt><dd>${esc(new Date(b.finished+'T12:00').toLocaleDateString(undefined,{year:'numeric',month:'long',day:'numeric'}))}</dd>`:''}${b.pages?`<dt>Pages</dt><dd>${esc(b.pages)}</dd>`:''}</dl>${desc}${b.notes?`<div class="notes">${esc(b.notes)}</div>`:''}`;
   const acts=!owner?`<button type="button" data-act="close">Close</button>`:kind==='rec'
     ?`<button type="button" class="danger sp" data-act="dismiss" data-id="${esc(b.id)}">Dismiss</button><button type="button" data-act="close">Close</button><button class="pri" type="button" data-act="accept" data-id="${esc(b.id)}">Add to my to-read</button>`
-    :`<button type="button" data-act="close">Close</button>${b.shelf==='toread'?`<button type="button" data-act="finish" data-id="${esc(b.id)}">Mark as finished</button>`:''}<button class="pri" type="button" data-act="edit" data-id="${esc(b.id)}">Edit</button>`;
+    :`<button type="button" data-act="close">Close</button>${b.shelf!=='toread'?`<button type="button" data-act="fav" data-id="${esc(b.id)}">${b.fav?'Remove from Larry\'s picks':'Add to Larry\'s picks'}</button>`:''}${b.shelf==='toread'?`<button type="button" data-act="finish" data-id="${esc(b.id)}">Mark as finished</button>`:''}<button class="pri" type="button" data-act="edit" data-id="${esc(b.id)}">Edit</button>`;
   $('viewBox').innerHTML=`<div class="view">${coverHTML(b)}<div><h2>${esc(b.title)}</h2>${info}</div></div><div class="acts">${acts}</div>`;
   open('ovView');
 }
@@ -608,7 +668,7 @@ document.addEventListener('click',e=>{
   const s=e.target.closest('[data-scroll]');if(s){const tr=$(s.dataset.scroll);tr.scrollBy({left:s.dataset.dir*tr.clientWidth*.8});return}
   const a=e.target.closest('[data-act]');
   if(a){const act=a.dataset.act,id=a.dataset.id;
-    if(!owner&&['find-add','edit','finish','accept','dismiss','import-reads','gr-go'].includes(act))return;
+    if(!owner&&['fav','find-add','edit','finish','accept','dismiss','import-reads','gr-go'].includes(act))return;
     if(act==='import-reads'){$('grOut').innerHTML='';open('ovGR','grPick')}
     if(act==='gr-go')grGo();
     if(act==='close')close();if(act==='find-add')openFind('add');if(act==='find-rec')openFind('rec');
@@ -617,13 +677,15 @@ document.addEventListener('click',e=>{
     if(act==='accept'){const r=recs.find(x=>x.id===id);if(r){const {id:_,from,why,added,...rest}=r;
       openForm(null,{...rest,shelf:'toread',fromRec:r.id,notes:why?`Recommended${from?' by '+from:''}: ${why}`:(from?'Recommended by '+from:'')});$('iDate').value=''}}
     if(act==='dismiss'){del('recs',id);close();toast('Dismissed')}
+    if(act==='fav'){const b=books.find(x=>x.id===id);if(b){const nb={...b,fav:!b.fav};close();put('books',nb).then(ok=>ok&&toast(nb.fav?'Added to Larry\'s picks':'Removed from Larry\'s picks'))}}
     return}
+  const pkb=e.target.closest('.pk');if(pkb){openView('book',pkb.dataset.id);return}
   const bk=e.target.closest('.bk');if(bk){pullOut(bk);return}
   if(e.target.classList.contains('ov'))close();
 });
 document.addEventListener('keydown',e=>{if(e.key==='Escape')close()});
 $('q').addEventListener('input',render);
-['trRead','trTo'].forEach(id=>$(id).addEventListener('wheel',e=>{const t=$(id);if(Math.abs(e.deltaY)>Math.abs(e.deltaX)&&t.scrollWidth>t.clientWidth){const before=t.scrollLeft;t.style.scrollBehavior='auto';t.scrollLeft+=e.deltaY;t.style.scrollBehavior='';if(t.scrollLeft!==before)e.preventDefault()}},{passive:false}));
+['trPicks','trRead','trTo'].forEach(id=>$(id).addEventListener('wheel',e=>{const t=$(id);if(Math.abs(e.deltaY)>Math.abs(e.deltaX)&&t.scrollWidth>t.clientWidth){const before=t.scrollLeft;t.style.scrollBehavior='auto';t.scrollLeft+=e.deltaY;t.style.scrollBehavior='';if(t.scrollLeft!==before)e.preventDefault()}},{passive:false}));
 
 /* ---------- owner sign in ---------- */
 $('signInBtn').addEventListener('click',()=>{$('siErr').hidden=true;open('ovSign','siEmail')});
