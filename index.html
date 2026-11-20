@@ -6,6 +6,7 @@
 <title>Larry's Library</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;1,500&family=Karla:wght@400;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
 /* VOICE: bright, airy, easy — a reading nook on a light beach day
    IDEA: a long glass ledge you drift along sideways, books pulled off it and held up to look at
@@ -147,6 +148,8 @@ textarea{min-height:90px;resize:vertical}
 .hint{color:var(--mute);font-size:14px;padding:14px 4px}
 .toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 18px;border-radius:999px;font-size:15px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:20;max-width:90vw;text-align:center}
 .toast.on{opacity:1}
+details{margin-top:6px}summary{cursor:pointer;font-weight:600;color:var(--acc)}details p{margin:8px 0}
+footer .btns{display:flex;gap:10px;flex-wrap:wrap}
 @media(max-width:600px){:root{--cw:112px}.grid{grid-template-columns:minmax(0,1fr)}.view{grid-template-columns:minmax(0,1fr)}.view .cv{--cw:140px}.sh .tools{margin-left:0;width:100%}.sh input{flex:1}.arr{display:none}}
 @media(prefers-reduced-motion:reduce){.cv,.bk,.b3,.pull,.spine{transition:none}.track{scroll-behavior:auto}}
 </style>
@@ -156,7 +159,7 @@ textarea{min-height:90px;resize:vertical}
 <header>
   <div class="top">
     <div><h1>Welcome to Larry's <em>Library</em></h1><p class="count" id="count">&nbsp;</p></div>
-    <div class="btns"><button data-act="find-rec">Recommend a book</button><button class="pri" data-act="find-add">Add a book</button></div>
+    <div class="btns"><button data-act="find-rec">Recommend a book</button><button class="pri" id="addBtn" data-act="find-add" hidden>Add a book</button></div>
   </div>
   <div class="chips" id="chips" role="group" aria-label="Genres"></div>
   <p class="status" id="status" hidden></p>
@@ -176,10 +179,15 @@ textarea{min-height:90px;resize:vertical}
 </section>
 
 <footer>
-  <button id="exportBtn">Export backup</button>
-  <button id="importBtn">Import backup</button><input type="file" id="importFile" accept="application/json,.json" hidden>
-  <button id="fillBtn">Find missing covers and details</button>
-  <span class="src">Book data and covers from <a href="https://openlibrary.org" target="_blank" rel="noopener">Open Library</a> and <a href="https://books.google.com" target="_blank" rel="noopener">Google Books</a>. Your library is saved in this browser — export a backup now and then.</span>
+  <span class="btns" id="ownerTools" hidden>
+    <button data-act="import-reads">Import from Goodreads or StoryGraph</button>
+    <button id="exportBtn">Export backup</button>
+    <button id="importBtn">Import backup</button><input type="file" id="importFile" accept="application/json,.json" hidden>
+    <button id="fillBtn">Find missing covers and details</button>
+    <button id="migrateBtn" hidden></button>
+  </span>
+  <span class="src">Book data and covers from <a href="https://openlibrary.org" target="_blank" rel="noopener">Open Library</a> and <a href="https://books.google.com" target="_blank" rel="noopener">Google Books</a>. <span id="saveNote"></span>
+    <button type="button" class="link" id="signInBtn" hidden>Owner sign in</button><button type="button" class="link" id="signOutBtn" hidden>Sign out</button></span>
 </footer>
 </div>
 
@@ -223,6 +231,30 @@ textarea{min-height:90px;resize:vertical}
 </form></div>
 
 <div class="ov" id="ovView" role="dialog" aria-modal="true"><div class="modal" id="viewBox"></div></div>
+
+<!-- owner sign in -->
+<div class="ov" id="ovSign" role="dialog" aria-modal="true" aria-labelledby="siTitle"><form class="modal" id="signForm" style="width:min(440px,100%)">
+  <h2 id="siTitle">Owner sign in</h2>
+  <p class="meta">Sign in to add, edit and organise the shelves.</p>
+  <div class="grid">
+    <label class="full">Email<input id="siEmail" type="email" autocomplete="username" required></label>
+    <label class="full">Password<input id="siPass" type="password" autocomplete="current-password" required></label>
+  </div>
+  <p class="meta" id="siErr" style="color:#c0392b;margin:12px 0 0" hidden></p>
+  <div class="acts"><button type="button" data-act="close">Cancel</button><button class="pri" type="submit" id="siGo">Sign in</button></div>
+</form></div>
+
+<!-- Goodreads / StoryGraph import -->
+<div class="ov" id="ovGR" role="dialog" aria-modal="true" aria-labelledby="grTitle"><div class="modal">
+  <h2 id="grTitle">Import your reading history</h2>
+  <p class="meta">Bring in everything you've tracked on Goodreads or StoryGraph: shelves, ratings, dates read and reviews. Covers and descriptions are looked up afterwards.</p>
+  <details><summary>How to get the file</summary>
+    <p><b>Goodreads:</b> on goodreads.com open <b>My Books</b>, then <b>Import and export</b> (under Tools in the left column) and click <b>Export Library</b>. When it's ready, download the .csv file.</p>
+    <p><b>StoryGraph:</b> open your profile menu, go to <b>Manage Account</b> and choose <b>Export StoryGraph Library</b>, then download the .csv file.</p></details>
+  <div style="margin-top:16px"><button type="button" class="pri" id="grPick">Choose the exported .csv file</button><input type="file" id="grFile" accept=".csv,text/csv" hidden></div>
+  <div id="grOut"></div>
+  <div class="acts"><button type="button" data-act="close">Close</button></div>
+</div></div>
 <div class="toast" id="toast" role="status"></div>
 
 <script>
@@ -245,25 +277,80 @@ const newId=()=>'b'+Date.now().toString(36)+Math.random().toString(36).slice(2,7
 const today=()=>new Date().toISOString().slice(0,10);
 const okCover=u=>typeof u==='string'&&(/^https:\/\/[^\s"'<>]+$/.test(u)||/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(u))?u:'';
 
-/* ---------- storage (swap this block for Supabase later) ---------- */
+/* ---------- settings: paste your Supabase details here (see SUPABASE_SETUP.md) ----------
+   Leave both empty to keep the library in this browser only. */
+const SUPABASE_URL='';   /* e.g. https://abcdefgh.supabase.co */
+const SUPABASE_KEY='';   /* the "anon public" / publishable key: safe to be public */
+
+/* ---------- storage ---------- */
 const LS='reading-library-v2';
-const store={
-  load(){try{const d=JSON.parse(localStorage.getItem(LS));if(d&&Array.isArray(d.books))return d}catch(e){}return null},
-  save(){try{localStorage.setItem(LS,JSON.stringify({books,recs}))}catch(e){toast('Couldn\'t save — your browser storage may be full.')}}
-};
-let books=[],recs=[];
-const saved=store.load();
-if(saved){books=saved.books;recs=saved.recs||[]}
-else{ /* carried over from the Claude-hosted version */
-  books=[
-   {id:'bmwol8xk3ostmg',title:'Crime and Punishment',author:'Fyodor Dostoyevsky',shelf:'read',genre:'Literary Fiction',finished:'',rating:0,cover:'',notes:'',added:1795155521763,
-    desc:'In St. Petersburg, a destitute former student, Raskolnikov, talks himself into committing a murder he believes is justified, then unravels under the weight of guilt, fever and a relentless detective. A psychological novel about conscience, pride and the possibility of redemption.'},
-   {id:'bmwol8xpgh8qhi',title:'Notes from Underground',author:'Fyodor Dostoyevsky',shelf:'read',genre:'Literary Fiction',finished:'',rating:0,cover:'',notes:'',added:1795155521957,
-    desc:'A bitter, isolated retired official in St. Petersburg narrates a rambling attack on reason, progress and himself, then recalls a series of humiliating encounters from his youth. A short, sharp novella often seen as a forerunner of existentialist fiction.'}];
-  store.save();
+const wantRemote=!!(SUPABASE_URL&&SUPABASE_KEY);
+const remote=wantRemote&&window.supabase?window.supabase.createClient(SUPABASE_URL,SUPABASE_KEY):null;
+let books=[],recs=[],owner=!wantRemote,migrateList=[];
+const okItem=x=>x&&typeof x==='object'&&typeof x.title==='string'&&typeof x.id==='string';
+function readLocal(){try{const d=JSON.parse(localStorage.getItem(LS));if(d&&Array.isArray(d.books))return d}catch(e){}return null}
+function saveLocal(){try{localStorage.setItem(LS,JSON.stringify({books,recs}))}catch(e){toast('Couldn\'t save — your browser storage may be full.')}}
+if(!wantRemote){
+  const saved=readLocal();
+  if(saved){books=saved.books.filter(okItem);recs=(saved.recs||[]).filter(okItem)}
+  else{ /* carried over from the Claude-hosted version */
+    books=[
+     {id:'bmwol8xk3ostmg',title:'Crime and Punishment',author:'Fyodor Dostoyevsky',shelf:'read',genre:'Literary Fiction',finished:'',rating:0,cover:'',notes:'',added:1795155521763,
+      desc:'In St. Petersburg, a destitute former student, Raskolnikov, talks himself into committing a murder he believes is justified, then unravels under the weight of guilt, fever and a relentless detective. A psychological novel about conscience, pride and the possibility of redemption.'},
+     {id:'bmwol8xpgh8qhi',title:'Notes from Underground',author:'Fyodor Dostoyevsky',shelf:'read',genre:'Literary Fiction',finished:'',rating:0,cover:'',notes:'',added:1795155521957,
+      desc:'A bitter, isolated retired official in St. Petersburg narrates a rambling attack on reason, progress and himself, then recalls a series of humiliating encounters from his youth. A short, sharp novella often seen as a forerunner of existentialist fiction.'}];
+    saveLocal();
+  }
 }
-function put(coll,item){const arr=coll==='books'?books:recs,i=arr.findIndex(x=>x.id===item.id);i<0?arr.push(item):arr[i]=item;store.save();render()}
-function del(coll,id){if(coll==='books')books=books.filter(x=>x.id!==id);else recs=recs.filter(x=>x.id!==id);store.save();render()}
+const denied=err=>err&&(err.code==='42501'||/row-level security|permission denied/i.test(err.message||''));
+async function fetchAll(coll){
+  let out=[];
+  for(let from=0;;from+=1000){const {data,error}=await remote.from(coll).select('data').range(from,from+999);if(error)throw error;
+    out=out.concat(data.map(r=>r.data).filter(okItem));if(data.length<1000)break}
+  return out;
+}
+async function loadRemote(){
+  try{const [b,r]=await Promise.all([fetchAll('books'),fetchAll('recs')]);books=b;recs=r;status('')}
+  catch(e){status('Couldn\'t load the library — check your connection and refresh the page.')}
+  render();
+}
+/* add or update one item; the shelf updates at once and rolls back if the save fails */
+async function put(coll,item,opts={}){
+  const arr=coll==='books'?books:recs,i=arr.findIndex(x=>x.id===item.id),prev=i<0?null:arr[i];
+  i<0?arr.push(item):arr[i]=item;render();
+  if(!remote){saveLocal();return true}
+  const row={id:item.id,data:item};
+  const {error}=opts.insert?await remote.from(coll).insert(row):await remote.from(coll).upsert(row);
+  if(error){const j=arr.findIndex(x=>x.id===item.id);if(j>=0){prev?arr[j]=prev:arr.splice(j,1)}render();
+    toast(denied(error)?'Only the owner can change the library — sign in first.':'Couldn\'t save — please try again.');return false}
+  return true;
+}
+async function putMany(list){
+  for(const b of list){const i=books.findIndex(x=>x.id===b.id);i<0?books.push(b):books[i]=b}
+  render();
+  if(!remote){saveLocal();return true}
+  for(let i=0;i<list.length;i+=200){
+    const {error}=await remote.from('books').upsert(list.slice(i,i+200).map(b=>({id:b.id,data:b})));
+    if(error){toast(denied(error)?'Only the owner can change the library — sign in first.':'Couldn\'t save some books — please try again.');await loadRemote();return false}
+  }
+  return true;
+}
+async function del(coll,id){
+  const arr=coll==='books'?books:recs,i=arr.findIndex(x=>x.id===id);if(i<0)return true;
+  const prev=arr[i];arr.splice(i,1);render();
+  if(!remote){saveLocal();return true}
+  const {error}=await remote.from(coll).delete().eq('id',id);
+  if(error){arr.push(prev);render();toast('Couldn\'t delete — please try again.');return false}
+  return true;
+}
+function applyRole(){
+  $('addBtn').hidden=!owner;$('ownerTools').hidden=!owner;
+  $('signInBtn').hidden=!remote||owner;$('signOutBtn').hidden=!remote||!owner;
+  $('saveNote').textContent=wantRemote?'':'Your library is saved in this browser — export a backup now and then.';
+  migrateList=remote&&owner?((readLocal()||{}).books||[]).filter(okItem).filter(b=>!books.some(x=>x.id===b.id||x.title.toLowerCase()===b.title.toLowerCase())):[];
+  $('migrateBtn').hidden=!migrateList.length;
+  $('migrateBtn').textContent=`Upload ${migrateList.length} book${migrateList.length===1?'':'s'} saved in this browser`;
+}
 
 /* ---------- catalog: Open Library + Google Books ---------- */
 const OL='https://openlibrary.org';
@@ -340,9 +427,11 @@ function render(){
   $('nRead').textContent=r.length+(r.length===1?' book':' books');
   $('nTo').textContent=(t.length+rc.length)+(t.length+rc.length===1?' book':' books');
   $('trRead').innerHTML=r.length?r.map(b=>bookBtn(b,'book')).join(''):
-    !books.length?`<div class="empty"><h3>An empty shelf, for now</h3><p>Search the catalog for a book you've finished and it'll appear here with its cover.</p><div class="btns"><button class="pri" data-act="find-add">Add a book</button></div></div>`
+    !books.length&&owner?`<div class="empty"><h3>An empty shelf, for now</h3><p>Search the catalog for a book you've finished, or import your history from Goodreads or StoryGraph.</p><div class="btns"><button class="pri" data-act="find-add">Add a book</button><button data-act="import-reads">Import from Goodreads or StoryGraph</button></div></div>`
+    :!books.length?`<div class="empty"><p>No books on this shelf yet.</p></div>`
     :`<div class="empty"><p>Nothing on this shelf matches.</p></div>`;
   $('trTo').innerHTML=t.map(b=>bookBtn(b,'book')).join('')+rc.map(b=>bookBtn(b,'rec')).join('')+`<button class="ghost" data-act="find-rec">+ Recommend a book</button>`;
+  applyRole();
 }
 
 /* ---------- catalog search modal ---------- */
@@ -417,10 +506,11 @@ $('delBtn').addEventListener('click',()=>{
 /* ---------- recommend ---------- */
 let recDraft=null;
 function openRec(d){recDraft=d;$('rCover').innerHTML=coverHTML(d,84);$('rTitle').textContent=d.title;$('rSub').textContent=d.author?'by '+d.author:'';open('ovRec','rFrom')}
-$('recForm').addEventListener('submit',e=>{
+$('recForm').addEventListener('submit',async e=>{
   e.preventDefault();if(!recDraft)return;
-  put('recs',{...recDraft,id:newId(),from:$('rFrom').value.trim().slice(0,60),why:$('rWhy').value.trim().slice(0,1000),added:Date.now()});
-  close();$('recForm').reset();toast('Thank you — it\'s on the to-read shelf');
+  const {olKey,...rest}=recDraft;
+  const rec={...rest,cover:okCover(rest.cover).startsWith('https:')?rest.cover:'',id:newId(),from:$('rFrom').value.trim().slice(0,60),why:$('rWhy').value.trim().slice(0,1000),added:Date.now()};
+  if(await put('recs',rec,{insert:true})){close();$('recForm').reset();toast('Thank you — it\'s on the to-read shelf')}
 });
 
 /* ---------- detail view ---------- */
@@ -430,7 +520,7 @@ function openView(kind,id){
   const info=kind==='rec'
     ?`<p class="meta">${b.author?'by '+esc(b.author)+' · ':''}recommended${b.from?' by '+esc(b.from):''}</p>${b.why?`<div class="notes">${esc(b.why)}</div>`:''}${desc}`
     :`<p class="meta">${b.author?'by '+esc(b.author):''}${b.year?' · '+esc(b.year):''}</p><dl class="dl">${b.rating?`<dt>My rating</dt><dd class="stars">${stars(b.rating)}</dd>`:''}${b.genre?`<dt>Genre</dt><dd>${esc(b.genre)}</dd>`:''}<dt>Shelf</dt><dd>${b.shelf==='toread'?'To read':'Finished'}</dd>${b.finished&&b.shelf!=='toread'?`<dt>Finished</dt><dd>${esc(new Date(b.finished+'T12:00').toLocaleDateString(undefined,{year:'numeric',month:'long',day:'numeric'}))}</dd>`:''}${b.pages?`<dt>Pages</dt><dd>${esc(b.pages)}</dd>`:''}</dl>${desc}${b.notes?`<div class="notes">${esc(b.notes)}</div>`:''}`;
-  const acts=kind==='rec'
+  const acts=!owner?`<button type="button" data-act="close">Close</button>`:kind==='rec'
     ?`<button type="button" class="danger sp" data-act="dismiss" data-id="${esc(b.id)}">Dismiss</button><button type="button" data-act="close">Close</button><button class="pri" type="button" data-act="accept" data-id="${esc(b.id)}">Add to my to-read</button>`
     :`<button type="button" data-act="close">Close</button>${b.shelf==='toread'?`<button type="button" data-act="finish" data-id="${esc(b.id)}">Mark as finished</button>`:''}<button class="pri" type="button" data-act="edit" data-id="${esc(b.id)}">Edit</button>`;
   $('viewBox').innerHTML=`<div class="view">${coverHTML(b)}<div><h2>${esc(b.title)}</h2>${info}</div></div><div class="acts">${acts}</div>`;
@@ -477,17 +567,17 @@ function pullOut(bk){
 /* ---------- backfill covers & details ---------- */
 let filling=false;
 async function backfill(all){
-  if(filling)return;const todo=books.filter(b=>(!b.cover||!b.desc||!b.genre)&&(all||!b.looked));if(!todo.length){if(all)toast('Every book already has a cover and details');return}
+  if(filling||!owner)return;const todo=books.filter(b=>(!b.cover||!b.desc||!b.genre)&&(all||!b.looked));if(!todo.length){if(all)toast('Every book already has a cover and details');return}
   filling=true;$('fillBtn').disabled=true;let n=0;
   for(const [i,b] of todo.entries()){
     status(`Looking up covers and details… ${i+1} of ${todo.length}`);
-    try{const docs=await searchCatalog(`${b.title} ${b.author||''}`.trim());const doc=docs.find(d=>d.cover_i)||docs[0];
+    try{let docs=b.isbn?await searchCatalog(b.isbn):[];if(!docs.length)docs=await searchCatalog(`${b.title.replace(/\s*\([^)]*#[^)]*\)\s*$/,'')} ${b.author||''}`.trim());const doc=docs.find(d=>d.cover_i)||docs[0];
       let d=doc?await details(doc):null;
       if(!d){const v=await googleLookup(b.title,b.author);if(v)d={cover:v.imageLinks?.thumbnail?.replace(/^http:/,'https:').replace('&edge=curl','')||'',desc:cleanDesc(stripHtml(v.description)),genre:guessGenre(v.categories),pages:v.pageCount||0}}
       const cur=books.find(x=>x.id===b.id);if(!cur)continue;
       const nb={...cur,looked:true};
       if(d){if(!nb.cover&&d.cover)nb.cover=d.cover;if(!nb.desc&&d.desc)nb.desc=d.desc;if(!nb.genre&&d.genre)nb.genre=d.genre;if(!nb.pages&&d.pages)nb.pages=d.pages;if(!nb.year&&d.year)nb.year=d.year;if(!nb.olKey&&d.olKey)nb.olKey=d.olKey;n++}
-      put('books',nb);
+      if(!(await put('books',nb)))break;
     }catch(e){status('Couldn\'t reach the catalog — try again later.');break}
   }
   filling=false;$('fillBtn').disabled=false;if(!$('status').textContent.startsWith('Couldn'))status('');if(all)toast(`Updated ${n} book${n===1?'':'s'}`);
@@ -504,9 +594,10 @@ $('importFile').addEventListener('change',async()=>{
   const f=$('importFile').files[0];if(!f)return;
   try{const d=JSON.parse(await f.text());if(!Array.isArray(d.books))throw 0;
     const clean=x=>x&&typeof x==='object'&&typeof x.title==='string'&&typeof x.id==='string';
-    let n=0;for(const b of d.books.filter(clean)){const i=books.findIndex(x=>x.id===b.id);i<0?books.push(b):books[i]=b;n++}
-    for(const r of (d.recs||[]).filter(clean))if(!recs.some(x=>x.id===r.id))recs.push(r);
-    store.save();render();toast(`Imported ${n} book${n===1?'':'s'}`);
+    const list=d.books.filter(clean);
+    if(!(await putMany(list)))return;
+    for(const r of (d.recs||[]).filter(clean))if(!recs.some(x=>x.id===r.id))await put('recs',r,{insert:true});
+    toast(`Imported ${list.length} book${list.length===1?'':'s'}`);backfill(false);
   }catch(e){toast('That file isn\'t a library backup')}
   $('importFile').value='';
 });
@@ -517,6 +608,9 @@ document.addEventListener('click',e=>{
   const s=e.target.closest('[data-scroll]');if(s){const tr=$(s.dataset.scroll);tr.scrollBy({left:s.dataset.dir*tr.clientWidth*.8});return}
   const a=e.target.closest('[data-act]');
   if(a){const act=a.dataset.act,id=a.dataset.id;
+    if(!owner&&['find-add','edit','finish','accept','dismiss','import-reads','gr-go'].includes(act))return;
+    if(act==='import-reads'){$('grOut').innerHTML='';open('ovGR','grPick')}
+    if(act==='gr-go')grGo();
     if(act==='close')close();if(act==='find-add')openFind('add');if(act==='find-rec')openFind('rec');
     if(act==='edit')openForm(books.find(b=>b.id===id));
     if(act==='finish'){const b=books.find(x=>x.id===id);if(b){openForm(b);$('iShelf').value='read';$('iDate').value=today()}}
@@ -531,9 +625,90 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape')close()});
 $('q').addEventListener('input',render);
 ['trRead','trTo'].forEach(id=>$(id).addEventListener('wheel',e=>{const t=$(id);if(Math.abs(e.deltaY)>Math.abs(e.deltaX)&&t.scrollWidth>t.clientWidth){const before=t.scrollLeft;t.style.scrollBehavior='auto';t.scrollLeft+=e.deltaY;t.style.scrollBehavior='';if(t.scrollLeft!==before)e.preventDefault()}},{passive:false}));
 
+/* ---------- owner sign in ---------- */
+$('signInBtn').addEventListener('click',()=>{$('siErr').hidden=true;open('ovSign','siEmail')});
+$('signOutBtn').addEventListener('click',async()=>{await remote.auth.signOut();toast('Signed out')});
+$('signForm').addEventListener('submit',async e=>{
+  e.preventDefault();$('siErr').hidden=true;$('siGo').disabled=true;
+  const {error}=await remote.auth.signInWithPassword({email:$('siEmail').value.trim(),password:$('siPass').value});
+  $('siGo').disabled=false;
+  if(error){$('siErr').textContent=/invalid login/i.test(error.message)?'That email and password don\'t match.':error.message;$('siErr').hidden=false;return}
+  $('siPass').value='';close();toast('Signed in — welcome back');
+});
+$('migrateBtn').addEventListener('click',async()=>{
+  const list=migrateList;if(!list.length)return;$('migrateBtn').disabled=true;
+  if(await putMany(list)){toast(`Uploaded ${list.length} book${list.length===1?'':'s'}`);backfill(false)}
+  $('migrateBtn').disabled=false;render();
+});
+
+/* ---------- Goodreads / StoryGraph import ---------- */
+function parseCSV(text){
+  const rows=[];let row=[],f='',q=false;
+  for(let i=0;i<text.length;i++){const c=text[i];
+    if(q){if(c==='"'){if(text[i+1]==='"'){f+='"';i++}else q=false}else f+=c}
+    else if(c==='"')q=true;
+    else if(c===','){row.push(f);f=''}
+    else if(c==='\n'||c==='\r'){if(c==='\r'&&text[i+1]==='\n')i++;row.push(f);rows.push(row);row=[];f=''}
+    else f+=c}
+  if(f||row.length){row.push(f);rows.push(row)}
+  return rows.filter(r=>r.some(x=>x.trim()));
+}
+function normDate(s){const m=[...String(s||'').matchAll(/(\d{4})[\/-](\d{1,2})[\/-](\d{1,2})/g)].pop();return m?`${m[1]}-${m[2].padStart(2,'0')}-${m[3].padStart(2,'0')}`:''}
+function fromExport(rows){
+  if(rows.length<2)return null;
+  const head=rows[0].map(h=>h.trim()),ix=n=>head.indexOf(n);
+  const isGR=ix('Exclusive Shelf')>=0,isSG=ix('Read Status')>=0;if(!isGR&&!isSG)return null;
+  const get=(r,...ns)=>{for(const n of ns){const i=ix(n);if(i>=0&&r[i]&&r[i].trim())return r[i].trim()}return''};
+  const out=[];let skipped=0;const t0=Date.now();
+  rows.slice(1).forEach((r,k)=>{
+    const title=get(r,'Title');if(!title)return;
+    const st=(isGR?get(r,'Exclusive Shelf'):get(r,'Read Status')).toLowerCase();
+    const shelf=st==='read'?'read':(st==='to-read'||st==='currently-reading')?'toread':null;
+    if(!shelf){skipped++;return}
+    const author=isGR?get(r,'Author'):get(r,'Authors').split(',').slice(0,2).map(x=>x.trim()).join(', ');
+    let isbn=(isGR?get(r,'ISBN13','ISBN'):get(r,'ISBN/UID')).replace(/[^0-9Xx]/g,'');if(!/^(\d{9}[\dXx]|\d{13})$/.test(isbn))isbn='';
+    const review=stripHtml(get(r,isGR?'My Review':'Review').replace(/<br\s*\/?>/gi,'\n')).trim();
+    out.push({id:newId()+k.toString(36),title:title.slice(0,300),author:author.slice(0,200),shelf,genre:'',
+      finished:shelf==='read'?normDate(isGR?get(r,'Date Read'):get(r,'Last Date Read','Dates Read')):'',
+      rating:Math.max(0,Math.min(5,Math.round(parseFloat(get(r,isGR?'My Rating':'Star Rating'))||0))),
+      pages:parseInt(get(r,'Number of Pages'),10)||0,year:get(r,'Original Publication Year','Year Published'),isbn,
+      desc:'',notes:review.slice(0,5000),cover:'',added:t0-k});
+  });
+  return {source:isGR?'Goodreads':'StoryGraph',books:out,skipped};
+}
+let grPending=[];
+$('grPick').addEventListener('click',()=>$('grFile').click());
+$('grFile').addEventListener('change',async()=>{
+  const f=$('grFile').files[0];$('grFile').value='';if(!f)return;
+  let res=null;try{res=fromExport(parseCSV((await f.text()).replace(/^\uFEFF/,'')))}catch(e){}
+  if(!res){$('grOut').innerHTML='<p class="meta" style="color:#c0392b;margin-top:14px">That doesn\'t look like a Goodreads or StoryGraph export. Choose the .csv file you downloaded from them.</p>';return}
+  const norm=x=>x.toLowerCase().replace(/\s*\([^)]*\)\s*$/,'').replace(/[^a-z0-9]+/g,' ').trim();
+  const have=new Set(books.map(b=>norm(b.title)));
+  grPending=res.books.filter(b=>!have.has(norm(b.title)));
+  const dup=res.books.length-grPending.length,fin=grPending.filter(b=>b.shelf==='read').length;
+  $('grOut').innerHTML=`<p style="margin:18px 0 0">Found <b>${res.books.length}</b> book${res.books.length===1?'':'s'} in your ${res.source} export.</p>
+    <p class="meta">${fin} finished · ${grPending.length-fin} to read${dup?` · ${dup} already on your shelves (skipped)`:''}${res.skipped?` · ${res.skipped} did-not-finish or other (skipped)`:''}</p>
+    ${grPending.length?`<button class="pri" type="button" data-act="gr-go">Add ${grPending.length} book${grPending.length===1?'':'s'}</button>`:''}`;
+});
+async function grGo(){
+  const list=grPending;grPending=[];if(!list.length)return;
+  $('grOut').innerHTML='<p class="meta" style="margin-top:14px">Adding your books…</p>';
+  if(await putMany(list)){close();toast(`Added ${list.length} books — now finding their covers`);backfill(false)}
+  else $('grOut').innerHTML='<p class="meta" style="color:#c0392b;margin-top:14px">Something went wrong while saving. Please try again.</p>';
+}
+
+/* ---------- start ---------- */
 matchMedia('(max-width:600px)').addEventListener('change',render);
-render();
-backfill(false); /* quietly finds covers for books that don't have one yet */
+async function start(){
+  if(!wantRemote){render();backfill(false);return} /* browser-only mode: quietly find covers for books that don't have one */
+  if(!remote){render();status('Couldn\'t connect to the online library — check your connection and refresh the page.');return}
+  status('Opening the library…');render();
+  try{const {data}=await remote.auth.getSession();owner=!!data.session}catch(e){}
+  remote.auth.onAuthStateChange((ev,sess)=>{const was=owner;owner=!!sess;render();if(owner&&!was)setTimeout(()=>backfill(false),0)});
+  await loadRemote();
+  if(owner)backfill(false);
+}
+start();
 }
 </script>
 </body>
